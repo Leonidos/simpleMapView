@@ -78,7 +78,7 @@ public class TilesPersistentMemoryCache {
 				if (size() > TilesPersistentMemoryCache.this.size) {
 					remove(eldest.getKey());
 					eldest.getValue().delete();
-					Log.i(LOG_TAG, "Deleted file: " + eldest.getKey());
+					//Log.i(LOG_TAG, "Deleted file: " + eldest.getKey());
 				}
 				
 				return false;

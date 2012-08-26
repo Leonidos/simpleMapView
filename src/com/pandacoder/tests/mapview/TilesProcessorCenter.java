@@ -93,7 +93,7 @@ public class TilesProcessorCenter extends Thread {
 				tileWasInCache = tilesPersistentCache.get(currentTileRequest, requestedTileBitmap);
 				if (tileWasInCache == true) {
 					mapView.addTileOnMapBitmap(currentTileRequest, requestedTileBitmap);
-					Log.i(LOG_TAG, "FROM FLASH: " + currentTileRequest);
+					//Log.i(LOG_TAG, "FROM FLASH: " + currentTileRequest);
 				}
 			}
 			
@@ -112,7 +112,7 @@ public class TilesProcessorCenter extends Thread {
 					}
 					
 					mapView.addTileOnMapBitmap(currentTileRequest, tileBitmap);
-					Log.i(LOG_TAG, "FROM NET: " + currentTileRequest);
+					//Log.i(LOG_TAG, "FROM NET: " + currentTileRequest);
 					
 					tileBitmap.recycle();
 				}

@@ -240,7 +240,7 @@ public class SimpleMapView extends ViewGroup {
 				}
 								
 				tileProcessor.request(tileRequest);
-				Log.i(LOG_TAG, "requested tile: snX=" + x + " snY=" + y);
+				//Log.i(LOG_TAG, "requested tile: snX=" + x + " snY=" + y);
 			}
 		}
 		
