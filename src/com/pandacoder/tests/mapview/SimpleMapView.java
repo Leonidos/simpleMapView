@@ -210,6 +210,8 @@ public class SimpleMapView extends ViewGroup {
 			maxXrequiredTile = mapProjection.getMaxTileSnX(),
 			minYrequiredTile = mapProjection.getMinTileSnY(),
 			maxYrequiredTile = mapProjection.getMaxTileSnY();
+		
+		tileProcessor.clearRequstQueue();
 				
 		for (int x = minXrequiredTile; x <= maxXrequiredTile; x++) {
 			for (int y = minYrequiredTile; y <= maxYrequiredTile; y++) {
@@ -221,6 +223,7 @@ public class SimpleMapView extends ViewGroup {
 					// сначала проверим, может быть тайл есть в РАМ кеше
 					Bitmap tileBitmap = tilesRamCache.get(tileRequest);
 					if (tileBitmap != null) {
+						if (tileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG) Log.e(LOG_TAG, "Tile Bitmap Config Error");
 						addTileOnMapBitmap(tileRequest, tileBitmap);
 						continue;
 					}
@@ -266,6 +269,9 @@ public class SimpleMapView extends ViewGroup {
 			tileScreenX = mapProjection.getTileScreenX(tileRequest.getTileSpecs());
 			tileScreenY	= mapProjection.getTileScreenY(tileRequest.getTileSpecs());		
 		}
+		
+		if (tileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG)
+			Log.e(LOG_TAG, "Tile Bitmap Config Error");
 		
 		mapViewCanvas.drawBitmap(tileBitmap, tileScreenX, tileScreenY, null);
 		postInvalidate();

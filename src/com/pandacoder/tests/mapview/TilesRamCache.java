@@ -18,7 +18,7 @@ public class TilesRamCache {
 	 * Создает кеш для тайлов заданного размера.
 	 * @param size
 	 */
-	TilesRamCache(int size) {
+	public TilesRamCache(int size) {
 		this.size = size;
 		
 		// используем LinkedHashMap, чтобы знать самый старый элемент и выкидывать его
@@ -38,18 +38,18 @@ public class TilesRamCache {
 		};
 	}
 	
-	synchronized void put(TileRequest tileRequest, Bitmap tileBitmap) {
+	public synchronized void put(TileRequest tileRequest, Bitmap tileBitmap) {
 		if (cache != null && cache.get(tileRequest) == null) { // такого тайла у нас еще нет
 			cache.put(tileRequest, Bitmap.createBitmap(tileBitmap));
 		}
 	}
 	
-	synchronized Bitmap get(TileRequest tileRequest) {
+	public synchronized Bitmap get(TileRequest tileRequest) {
 		if (cache != null) return cache.get(tileRequest);
 		else return null;
 	}
 	
-	synchronized void destroy() {
+	public synchronized void destroy() {
 		if (cache != null) {
 			for (Bitmap tileBitmap:cache.values()) {
 				tileBitmap.recycle();

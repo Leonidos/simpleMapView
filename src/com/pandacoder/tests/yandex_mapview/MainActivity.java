@@ -4,7 +4,6 @@ import com.pandacoder.tests.mapview.SimpleMapView;
 
 import android.os.Bundle;
 import android.app.Activity;
-import android.view.Menu;
 
 /**
  * Пример простой активити с созданной картой

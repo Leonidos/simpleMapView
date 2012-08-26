@@ -1,6 +1,5 @@
 package com.pandacoder.tests.mapview;
 
-import java.io.IOException;
 import java.io.InputStream;
 
 import org.apache.http.HttpEntity;
@@ -17,13 +16,15 @@ import com.pandacoder.tests.Utils.IOUtils;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.util.Log;
 
 /**
  * Класс для скачивания тайлов с сервера яндекса
  * @author Leonidos
  *
  */
-class YandexTileMiner {
+public class YandexTileMiner {
 	
 	private final static int CONNECTION_ESTABLISH_TIMEOUT_MS = 1000;
 	private final static int SOCKET_TIMEOUT_MS = 5000;
@@ -37,7 +38,7 @@ class YandexTileMiner {
 	 * Скачивает тайлы с сервера яндекса.
 	 * NOT THREAD SAFE.
 	 */
-	YandexTileMiner() {
+	public YandexTileMiner() {
 		this.tileBitmapOptions = new BitmapFactory.Options();
 		this.tileBitmapOptions.inPreferredConfig = TileSpecs.TILE_BITMAP_CONFIG;
 		
@@ -80,6 +81,14 @@ class YandexTileMiner {
 				try {
 					inputStream = entity.getContent();
 					resultTileBitmap = BitmapFactory.decodeStream(inputStream, null, tileBitmapOptions);
+					
+					// иногда decodeStream не хочет отдавать битмап в правильном формате
+					// нужно перерисовать вручную на новый битмап
+					if (resultTileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG) {
+						resultTileBitmap = fixBitmapConfigIssue(resultTileBitmap);
+					}
+					
+					if (resultTileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG) Log.e("YandexTileMiner", "Tile Bitmap Config Error");
 				} finally {
 					IOUtils.closeSilent(inputStream);
 					entity.consumeContent();
@@ -90,5 +99,13 @@ class YandexTileMiner {
 		} 
 
 		return resultTileBitmap;
+	}
+	
+	private Bitmap fixBitmapConfigIssue(Bitmap badConfigBitmap) {
+		Bitmap fixedBitmap = Bitmap.createBitmap(TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_BITMAP_CONFIG);
+		Canvas canvas = new Canvas(fixedBitmap);
+		canvas.drawBitmap(badConfigBitmap, 0, 0, null);
+		badConfigBitmap.recycle();
+		return fixedBitmap;
 	}
 }

@@ -3,10 +3,8 @@ package com.pandacoder.tests.mapview;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
-import java.util.Map.Entry;
 
 import android.graphics.Bitmap;
 import android.util.Log;
