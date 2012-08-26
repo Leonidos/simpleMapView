@@ -21,7 +21,7 @@ public class TilesProcessorCenter extends Thread {
 	private final TilesRamCache tilesRamCache;
 	private final TilesPersistentMemoryCache tilesPersistentCache;
 	
-	private final Bitmap requestedTileBitmap;
+	private Bitmap requestedTileBitmap;
 	
 	private boolean paused = false;
 	
@@ -132,7 +132,7 @@ public class TilesProcessorCenter extends Thread {
 	/**
 	 * Очищает очередь ожидающих обработки запросов
 	 */
-	public synchronized void clearRequstQueue() {
+	public synchronized void clearRequestQueue() {
 		tileRequestsStackQueue.clear();
 	}
 	
@@ -169,6 +169,7 @@ public class TilesProcessorCenter extends Thread {
 		
 		if (requestedTileBitmap != null) {
 			requestedTileBitmap.recycle();
-		}
+			requestedTileBitmap = null;
+		}		
 	} 
 }

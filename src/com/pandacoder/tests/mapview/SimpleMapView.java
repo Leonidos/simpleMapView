@@ -211,7 +211,7 @@ public class SimpleMapView extends ViewGroup {
 			minYrequiredTile = mapProjection.getMinTileSnY(),
 			maxYrequiredTile = mapProjection.getMaxTileSnY();
 		
-		tileProcessor.clearRequstQueue();
+		tileProcessor.clearRequestQueue();
 				
 		for (int x = minXrequiredTile; x <= maxXrequiredTile; x++) {
 			for (int y = minYrequiredTile; y <= maxYrequiredTile; y++) {
