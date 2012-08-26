@@ -31,6 +31,11 @@ public class SimpleMapView extends ViewGroup {
 	
 	private final int MAP_BG_COLOR = 0x000000;
 	
+	// по заданию карта должна быть 100х100, сервер отдает намного больше тайлов
+	// поэтому не будем давать пользователю сдвинуть карту больше чем
+	// на 50 тайлов в любую сторону
+	private final static int MAP_MAXMIN_XY_ALLOWED_COORDS = 100*TileSpecs.TILE_SIZE_WH_PX/2;
+	
 	private int currentMapCenterOffsetXp = 0,
 				currentMapCenterOffsetYp = 0;
 	
@@ -165,6 +170,11 @@ public class SimpleMapView extends ViewGroup {
 	
 	private void translateMap(int dx, int dy) {
 		synchronized(mapViewBitmapMatrix) {
+			
+			// ограничение на передвижение карты
+			if (Math.abs(currentMapCenterOffsetXp - dx) > MAP_MAXMIN_XY_ALLOWED_COORDS) dx = 0;
+			if (Math.abs(currentMapCenterOffsetYp - dy) > MAP_MAXMIN_XY_ALLOWED_COORDS) dy = 0;
+			
 			mapViewBitmapMatrix.postTranslate(dx, dy);
 			currentMapCenterOffsetXp -= dx;
 			currentMapCenterOffsetYp -= dy;
