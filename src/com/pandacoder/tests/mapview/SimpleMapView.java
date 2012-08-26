@@ -280,9 +280,6 @@ public class SimpleMapView extends ViewGroup {
 			tileScreenY	= mapProjection.getTileScreenY(tileRequest.getTileSpecs());		
 		}
 		
-		if (tileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG)
-			Log.e(LOG_TAG, "Tile Bitmap Config Error");
-		
 		mapViewCanvas.drawBitmap(tileBitmap, tileScreenX, tileScreenY, null);
 		postInvalidate();
 	}

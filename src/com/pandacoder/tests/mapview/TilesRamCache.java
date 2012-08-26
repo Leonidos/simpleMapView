@@ -1,18 +1,22 @@
 package com.pandacoder.tests.mapview;
 
+import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.Map;
 
 import android.graphics.Bitmap;
 
 /**
- * Кеш для тайлов в оперативной памяти заданного размера. Изображения копируются перед помещение в кеш
- * 
+ * Кеш для тайлов в оперативной памяти заданного размера. В кеше хранятся копии.
+ *  
  */
 public class TilesRamCache {
 	
 	private final int size;
 	private LinkedHashMap<TileRequest, Bitmap> cache;
+	private LinkedList<Bitmap> bitmapPool;
+	private final ByteBuffer bitmapPixelsBuffer;
 	
 	/**
 	 * Создает кеш для тайлов заданного размера.
@@ -31,16 +35,27 @@ public class TilesRamCache {
 			protected boolean removeEldestEntry(Map.Entry<TileRequest, Bitmap> eldest) {
 		        if (size() > TilesRamCache.this.size) {
 		        	remove(eldest.getKey());
-		        	eldest.getValue().recycle();		        	
+		        	TilesRamCache.this.bitmapPool.add(eldest.getValue());	        	
 		        }
 		        return false;
 		    }
 		};
+		
+		bitmapPool = new LinkedList<Bitmap>();
+		for (int i = 0; i <= this.size; i++) {
+			bitmapPool.add(Bitmap.createBitmap(TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_BITMAP_CONFIG));
+		}
+		
+		bitmapPixelsBuffer = ByteBuffer.allocate(TileSpecs.TILE_BITMAP_SIZE_BYTES);
 	}
 	
 	public synchronized void put(TileRequest tileRequest, Bitmap tileBitmap) {
 		if (cache != null && cache.get(tileRequest) == null) { // такого тайла у нас еще нет
-			cache.put(tileRequest, Bitmap.createBitmap(tileBitmap));
+			tileBitmap.copyPixelsToBuffer(bitmapPixelsBuffer);
+			bitmapPixelsBuffer.rewind();
+		    Bitmap temp = bitmapPool.remove();
+		    temp.copyPixelsFromBuffer(bitmapPixelsBuffer);
+		    cache.put(tileRequest, temp);
 		}
 	}
 	
@@ -54,6 +69,10 @@ public class TilesRamCache {
 			for (Bitmap tileBitmap:cache.values()) {
 				tileBitmap.recycle();
 			}
+			
+			for (Bitmap bitmap : bitmapPool) {
+		        bitmap.recycle();
+		    }
 			
 			cache.clear();
 			cache = null;

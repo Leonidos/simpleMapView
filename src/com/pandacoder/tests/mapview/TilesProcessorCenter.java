@@ -113,6 +113,7 @@ public class TilesProcessorCenter extends Thread {
 					
 					mapView.addTileOnMapBitmap(currentTileRequest, tileBitmap);
 					Log.i(LOG_TAG, "FROM NET: " + currentTileRequest);
+					
 					tileBitmap.recycle();
 				}
 			}			

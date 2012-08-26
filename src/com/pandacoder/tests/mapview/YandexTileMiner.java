@@ -88,7 +88,6 @@ public class YandexTileMiner {
 						resultTileBitmap = fixBitmapConfigIssue(resultTileBitmap);
 					}
 					
-					if (resultTileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG) Log.e("YandexTileMiner", "Tile Bitmap Config Error");
 				} finally {
 					IOUtils.closeSilent(inputStream);
 					entity.consumeContent();
