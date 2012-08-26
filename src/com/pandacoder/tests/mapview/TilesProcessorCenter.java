@@ -103,8 +103,6 @@ public class TilesProcessorCenter extends Thread {
 				Bitmap tileBitmap = tileMiner.getTileBitmap(currentTileRequest);
 				if (tileBitmap != null) {
 					
-					if (tileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG) Log.e(LOG_TAG, "DownLoaded:Tile Bitmap Config Error");
-					
 					if (tilesRamCache != null) {	// если есть кеш в раме
 						tilesRamCache.put(currentTileRequest, tileBitmap);
 					}
@@ -115,6 +113,7 @@ public class TilesProcessorCenter extends Thread {
 					
 					mapView.addTileOnMapBitmap(currentTileRequest, tileBitmap);
 					Log.i(LOG_TAG, "FROM NET: " + currentTileRequest);
+					tileBitmap.recycle();
 				}
 			}			
 		}
