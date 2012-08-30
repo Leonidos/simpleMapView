@@ -20,7 +20,7 @@ import android.graphics.Canvas;
 import android.util.Log;
 
 /**
- * Класс для скачивания тайлов с сервера яндекса
+ * Класс для скачивания тайлов с сервера яндекса. {@link#getTileBitmap} можно вызывать из разных потоков.
  * @author Leonidos
  *
  */
@@ -32,17 +32,12 @@ public class YandexTileMiner {
 	private final BitmapFactory.Options tileBitmapOptions;
 	private final String baseTileSourceURL = "http://vec.maps.yandex.net/tiles?l=map&v=2.21.0&z=10";
 	
-	private final HttpClient httpClient;
-	
 	/**
 	 * Скачивает тайлы с сервера яндекса.
-	 * NOT THREAD SAFE.
 	 */
 	public YandexTileMiner() {
 		this.tileBitmapOptions = new BitmapFactory.Options();
 		this.tileBitmapOptions.inPreferredConfig = TileSpecs.TILE_BITMAP_CONFIG;
-		
-		this.httpClient = new DefaultHttpClient(buildHttpClientParams());
 	}
 	
 	private String buildURL(TileRequest tileRequest) {
@@ -66,7 +61,9 @@ public class YandexTileMiner {
 	public Bitmap getTileBitmap(TileRequest tileRequest) {
 
 		Bitmap resultTileBitmap = null;
-		HttpGet getTileRequest = new HttpGet(buildURL(tileRequest));
+		
+		HttpClient httpClient = new DefaultHttpClient(buildHttpClientParams());
+		HttpGet getTileRequest = new HttpGet(buildURL(tileRequest));		
 		
 		try {
 			HttpResponse response = httpClient.execute(getTileRequest);

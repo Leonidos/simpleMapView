@@ -56,6 +56,11 @@ public class MapProjection {
 		return bottomRightTileYsn;
 	}
 	
+	public boolean isTileNotVisible(TileSpecs tile) {
+		return (tile.xSn < topLeftTileXsn) || (tile.xSn > bottomRightTileXsn) ||
+			   (tile.ySn < topLeftTileYsn) || (tile.ySn > bottomRightTileYsn);
+	}
+	
 	public int getTileScreenX(TileSpecs tile) {
 		return (tile.xSn - MAP_CENTER_TILE_X_SN)*TileSpecs.TILE_SIZE_WH_PX - visibleRect.left;
 	}

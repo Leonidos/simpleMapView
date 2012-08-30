@@ -29,7 +29,7 @@ public class SimpleMapView extends ViewGroup {
 	
 	private final String LOG_TAG = SimpleMapView.class.getSimpleName();
 	
-	private final int MAP_BG_COLOR = 0x000000;
+	private final int MAP_BG_COLOR = 0xff000000;
 	
 	// по заданию карта должна быть 100х100, сервер отдает намного больше тайлов
 	// поэтому не будем давать пользователю сдвинуть карту больше чем
@@ -94,7 +94,7 @@ public class SimpleMapView extends ViewGroup {
 		
 		touchEventHandler = new TouchEventHandler();
 		
-		tileProcessor = new TilesProcessorCenter(this, tilesRamCache, tilesMemoryCache);
+		tileProcessor = new TilesProcessorCenter(this, tilesMemoryCache);
 		tileProcessor.start();
 	}
 	
@@ -186,6 +186,7 @@ public class SimpleMapView extends ViewGroup {
 		
 		if (mapViewBitmap1 == null) return;
 		
+		//canvas.drawColor(MAP_BG_COLOR);
 		synchronized(mapViewBitmapMatrix) {
 			canvas.drawBitmap(mapViewBitmap1, mapViewBitmapMatrix, null);
 		}
@@ -255,34 +256,45 @@ public class SimpleMapView extends ViewGroup {
 	 * @param tileRequest запрос тайла
 	 * @param tileBitmap изображение тайла
 	 */
-	synchronized public void addTileOnMapBitmap(TileRequest tileRequest, Bitmap tileBitmap) {
-		
-		// сейчас будет интересное место, где надо разобраться, что делать если
-		// карта была сдвинута
-		
-		int tileScreenX, tileScreenY;
-		synchronized(mapViewBitmapMatrix) {
-			if (!mapViewBitmapMatrix.isIdentity()) {
-				
-				// берем запасной битмап
-				mapViewBitmap2.eraseColor(MAP_BG_COLOR);	// стираем его
-				mapViewCanvas.setBitmap(mapViewBitmap2);	// готовимся на нем рисовать
-				
-				mapViewCanvas.drawBitmap(mapViewBitmap1, mapViewBitmapMatrix, null);
-				mapViewBitmapMatrix.reset();
-				
-				Bitmap temp = mapViewBitmap1;
-				mapViewBitmap1 = mapViewBitmap2;
-				mapViewBitmap2 = temp;			
+	public void addTileOnMapBitmap(TileRequest tileRequest, Bitmap tileBitmap) {
+
+		synchronized(this) {
+
+			// сейчас будет интересное место, где надо разобраться, что делать если
+			// карта была сдвинута
+
+			int tileScreenX, tileScreenY;
+			synchronized(mapViewBitmapMatrix) {
+				if (!mapViewBitmapMatrix.isIdentity()) {
+
+					// берем запасной битмап
+					mapViewBitmap2.eraseColor(MAP_BG_COLOR);	// стираем его
+					mapViewCanvas.setBitmap(mapViewBitmap2);	// готовимся на нем рисовать
+
+					mapViewCanvas.drawBitmap(mapViewBitmap1, mapViewBitmapMatrix, null);
+					mapViewBitmapMatrix.reset();
+
+					Bitmap temp = mapViewBitmap1;
+					mapViewBitmap1 = mapViewBitmap2;
+					mapViewBitmap2 = temp;			
+				}
+
+				TileSpecs currentTile = tileRequest.getTileSpecs();
+				if (mapProjection.isTileNotVisible(currentTile) == true) {
+					return;
+				} else {
+					tileScreenX = mapProjection.getTileScreenX(tileRequest.getTileSpecs());
+					tileScreenY	= mapProjection.getTileScreenY(tileRequest.getTileSpecs());
+				}
 			}
-			
-			tileScreenX = mapProjection.getTileScreenX(tileRequest.getTileSpecs());
-			tileScreenY	= mapProjection.getTileScreenY(tileRequest.getTileSpecs());		
+
+			mapViewCanvas.drawBitmap(tileBitmap, tileScreenX, tileScreenY, null);
+			postInvalidate();
 		}
 		
-		mapViewCanvas.drawBitmap(tileBitmap, tileScreenX, tileScreenY, null);
-		postInvalidate();
+		tilesRamCache.put(tileRequest, tileBitmap);
 	}
+	
 	
 	/**
 	 * Правильно очищает ресурсы. Вызывать, когда карта больше не нужна.

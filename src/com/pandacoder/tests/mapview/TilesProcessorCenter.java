@@ -1,61 +1,77 @@
 package com.pandacoder.tests.mapview;
 
+import java.util.LinkedList;
 import java.util.Stack;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 
 import android.graphics.Bitmap;
 import android.util.Log;
 
 /**
  * Центр обработки тайлов. Принимает запросы на выдачу изображений тайлов. Качает тайлы из сети или берет из
- * кеша в постоянной памяти. Скачанные тайлы ложит в кеш
+ * кеша в постоянной памяти. Скачанные тайлы ложит в кеш. Скачивание происходит параллельно, без прерывания
+ * процесса обоработки запросов на тайлы и работы с кешем.
  * 
  */
 public class TilesProcessorCenter extends Thread {
 	
 	private final static String LOG_TAG = TilesProcessorCenter.class.getSimpleName();
+	private final static int TILE_MINER_EXECUTOR_POOL_SIZE = getTileDownloaderExecutorPoolSize();
+	private final static int TILE_MINER_EXECUTOR_TASK_QUEUE_SIZE = 64; // хватит на все случаи жизни
+	
+	/**
+	 * Определяет количество рабочих потоков для скачивания тайлов, скачивание в несколько
+	 * потоков может дать прирост скорости
+	 * 
+	 * @return 1 - на одноядерных устройствах, 2 - на многоядерных
+	 */
+	private final static int getTileDownloaderExecutorPoolSize() {
+		return (Runtime.getRuntime().availableProcessors() == 1)?1:2;
+	}
 	
 	private final SimpleMapView mapView;
 	private final Stack<TileRequest> tileRequestsStackQueue;
+	private final LinkedList<Future<?>> runningTileMiners;	// состояния запрошеных работ
 	private final YandexTileMiner tileMiner;
+	private final TileMinerExecutorService tileMineExecutor;
 	
-	private final TilesRamCache tilesRamCache;
 	private final TilesPersistentMemoryCache tilesPersistentCache;
 	
 	private Bitmap requestedTileBitmap;
 	
-	private boolean paused = false;
+	private boolean paused = true;
 	
 	/**
 	 * Создает центр обработки тайлов.
 	 * 
-	 * @param mapView вид карта
-	 * @param tilesRamCache кеш в оперативной памяти, если null - не используется
+	 * @param mapView вид-карта
 	 * @param tilesPersistentCache кеш в постоянной памяти, если null - не используется
 	 * 
 	 * @throws NullPointerException если mapView == null
 	 */
-	TilesProcessorCenter(SimpleMapView mapView, TilesRamCache tilesRamCache, TilesPersistentMemoryCache tilesPersistentCache) {
+	TilesProcessorCenter(SimpleMapView mapView, TilesPersistentMemoryCache tilesPersistentCache) {
 		
 		if (mapView == null) throw new NullPointerException("mapView can't be null");
 		
 		this.mapView = mapView;
-		this.tilesRamCache = tilesRamCache;
 		this.tilesPersistentCache = tilesPersistentCache;
 		
 		this.tileRequestsStackQueue = new Stack<TileRequest>();
 		this.tileMiner = new YandexTileMiner();
+		this.tileMineExecutor = new TileMinerExecutorService(TILE_MINER_EXECUTOR_POOL_SIZE, TILE_MINER_EXECUTOR_TASK_QUEUE_SIZE);
+		this.runningTileMiners = new LinkedList<Future<?>>();
 		
 		this.requestedTileBitmap = Bitmap.createBitmap(TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_BITMAP_CONFIG);
 	}
-	
 
 	//TODO надо бы переделать это место
 	/**
-	 * Основная логика потока обрабоки запросов на тайлы. 
+	 * Запускает поток, с основной логикой обрабоки запросов на тайлы. 
 	 * Пытается восстановить tilesPersistentCache, потом:
 	 * ждет новых запросов, если очередь запросов пуста;
-	 * скачивает новые тайлы из сети;
-	 * берет тайлы из кеша в постоянной памяти.
+	 * просматривает кеш тайлов;
+	 * скачивает новые тайлы из сети, если не попал в кеш.
 	 */
 	@Override
 	public void run() {
@@ -100,28 +116,43 @@ public class TilesProcessorCenter extends Thread {
 			if (isInterrupted()) break;
 			
 			if (tileWasInCache == false) { // нужно скачать тайл
-				Bitmap tileBitmap = tileMiner.getTileBitmap(currentTileRequest);
-				if (tileBitmap != null) {
-					
-					if (tilesRamCache != null) {	// если есть кеш в раме
-						tilesRamCache.put(currentTileRequest, tileBitmap);
-					}
-
-					if (tilesPersistentCache != null) {	// если ест кеш во флеше
-						tilesPersistentCache.put(currentTileRequest, tileBitmap);
-					}
-					
-					mapView.addTileOnMapBitmap(currentTileRequest, tileBitmap);
-					//Log.i(LOG_TAG, "FROM NET: " + currentTileRequest);
-					
-					tileBitmap.recycle();
-				}
+				addTileRequestToTileMinerExecutor(currentTileRequest);
 			}			
 		}
 	}
+	
+	private void addTileRequestToTileMinerExecutor(TileRequest tileRequest) {
+		 
+		Runnable tileDownloadJob = new TileMinerExecutorService.TileMinerRunnable(tileRequest){
+
+			@Override
+			public void run() {
+				if (isCanceled() == false) { // если задание не отменили 
+					Bitmap tileBitmap = tileMiner.getTileBitmap(tileRequest);
+					if (tileBitmap != null) {
+						
+						if (tilesPersistentCache != null) {	// если ест кеш во флеше
+							tilesPersistentCache.put(tileRequest, tileBitmap);
+						}
+						
+						mapView.addTileOnMapBitmap(tileRequest, tileBitmap);					
+						tileBitmap.recycle();
+					}				
+				}
+			}			
+		};
+		
+		try {
+			runningTileMiners.add(tileMineExecutor.submit(tileDownloadJob));
+		} catch (RejectedExecutionException ex) { 
+			// задание не было принято... видимо по какой-то причине заполнилась
+			// очередь, попробуем ее очистить
+			tileMineExecutor.clearTaskQueue();			
+		}		
+	}
 
 	/**
-	 * Запрашивает опеределенный тайл.
+	 * Добавляет в очередь запрос на опеределенный тайл.
 	 * @param tileRequest запрос
 	 */
 	public synchronized void request(TileRequest tileRequest) {
@@ -131,10 +162,18 @@ public class TilesProcessorCenter extends Thread {
 	}
 	
 	/**
-	 * Очищает очередь ожидающих обработки запросов
+	 * Очищает очередь запросов на тайлы. Можно вызвать
+	 * перед добавлением запросов на новые тайлы, чтобы отменить
+	 * старые еще не обработанные запросы.
+	 * 
+	 * Тайлы, которые успели начать качаться - докачиваются.
 	 */
 	public synchronized void clearRequestQueue() {
 		tileRequestsStackQueue.clear();
+		for (Future<?> runningTask :runningTileMiners) {
+			runningTask.cancel(false);	
+		}
+		runningTileMiners.clear();
 	}
 	
 	/**
@@ -172,5 +211,9 @@ public class TilesProcessorCenter extends Thread {
 			requestedTileBitmap.recycle();
 			requestedTileBitmap = null;
 		}		
+		
+		if (tileMineExecutor.isShutdown() == false) {
+			tileMineExecutor.shutdownNow();
+		}
 	} 
 }

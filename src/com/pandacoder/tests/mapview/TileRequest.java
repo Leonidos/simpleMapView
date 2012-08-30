@@ -23,7 +23,7 @@ public class TileRequest {
 			if (tileSpecs == null && other.tileSpecs != null) return false;
 			else return tileSpecs.equals(other.tileSpecs);
 		}
-		return super.equals(o);
+		return false;
 	}
 
 	@Override
