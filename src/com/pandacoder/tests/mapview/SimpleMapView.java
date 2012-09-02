@@ -111,7 +111,7 @@ public class SimpleMapView extends ViewGroup {
 	public void pauseTileProcessing() {
 		tileProcessor.pauseProcessing();
 	}
-
+	
 	/**
 	 * Простенький обработчик прикосновений, позволяет перетаскивать карту пальцем
 	 * и центрировать ее по двойному нажатию
@@ -186,7 +186,6 @@ public class SimpleMapView extends ViewGroup {
 		
 		if (mapViewBitmap1 == null) return;
 		
-		//canvas.drawColor(MAP_BG_COLOR);
 		synchronized(mapViewBitmapMatrix) {
 			canvas.drawBitmap(mapViewBitmap1, mapViewBitmapMatrix, null);
 		}
@@ -210,6 +209,9 @@ public class SimpleMapView extends ViewGroup {
 		requestRequiredTiles();
 	}
 	
+	/**
+	 * Запрашивает у tileProcessor требуемы в текущий момент тайлы для карты
+	 */
 	private void requestRequiredTiles() {
 		
 		int viewWidth = getWidth();
@@ -234,7 +236,6 @@ public class SimpleMapView extends ViewGroup {
 					// сначала проверим, может быть тайл есть в РАМ кеше
 					Bitmap tileBitmap = tilesRamCache.get(tileRequest);
 					if (tileBitmap != null) {
-						if (tileBitmap.getConfig() != TileSpecs.TILE_BITMAP_CONFIG) Log.e(LOG_TAG, "Tile Bitmap Config Error");
 						addTileOnMapBitmap(tileRequest, tileBitmap);
 						continue;
 					}
@@ -259,26 +260,25 @@ public class SimpleMapView extends ViewGroup {
 	public void addTileOnMapBitmap(TileRequest tileRequest, Bitmap tileBitmap) {
 
 		synchronized(this) {
-
 			// сейчас будет интересное место, где надо разобраться, что делать если
 			// карта была сдвинута
-
+	
 			int tileScreenX, tileScreenY;
 			synchronized(mapViewBitmapMatrix) {
 				if (!mapViewBitmapMatrix.isIdentity()) {
-
+	
 					// берем запасной битмап
 					mapViewBitmap2.eraseColor(MAP_BG_COLOR);	// стираем его
 					mapViewCanvas.setBitmap(mapViewBitmap2);	// готовимся на нем рисовать
-
+	
 					mapViewCanvas.drawBitmap(mapViewBitmap1, mapViewBitmapMatrix, null);
 					mapViewBitmapMatrix.reset();
-
+	
 					Bitmap temp = mapViewBitmap1;
 					mapViewBitmap1 = mapViewBitmap2;
 					mapViewBitmap2 = temp;			
 				}
-
+	
 				TileSpecs currentTile = tileRequest.getTileSpecs();
 				if (mapProjection.isTileNotVisible(currentTile) == true) {
 					return;
@@ -287,28 +287,21 @@ public class SimpleMapView extends ViewGroup {
 					tileScreenY	= mapProjection.getTileScreenY(tileRequest.getTileSpecs());
 				}
 			}
-
+	
 			mapViewCanvas.drawBitmap(tileBitmap, tileScreenX, tileScreenY, null);
 			postInvalidate();
 		}
-		
-		tilesRamCache.put(tileRequest, tileBitmap);
+
+		if (tilesRamCache != null) tilesRamCache.put(tileRequest, tileBitmap);
 	}
 	
 	
 	/**
 	 * Правильно очищает ресурсы. Вызывать, когда карта больше не нужна.
 	 */
-	public void destroy() {
+	public synchronized void destroy() {
 		
 		if (tileProcessor != null) {
-			tileProcessor.interrupt();
-			try {
-				tileProcessor.join();
-				Log.i(LOG_TAG, "TileProcessor's thread dead now");
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			}
 			tileProcessor.destroy();
 			tileProcessor = null;
 		}		

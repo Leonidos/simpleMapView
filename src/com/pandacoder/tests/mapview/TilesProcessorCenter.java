@@ -2,7 +2,6 @@ package com.pandacoder.tests.mapview;
 
 import java.util.LinkedList;
 import java.util.Stack;
-import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 
 import android.graphics.Bitmap;
@@ -13,12 +12,13 @@ import android.util.Log;
  * кеша в постоянной памяти. Скачанные тайлы ложит в кеш. Скачивание происходит параллельно, без прерывания
  * процесса обоработки запросов на тайлы и работы с кешем.
  * 
+ * Используйте {@link#destroy}, чтобы остановить центр обработки тайлой и очистить ресурсы
+ * 
  */
 public class TilesProcessorCenter extends Thread {
 	
 	private final static String LOG_TAG = TilesProcessorCenter.class.getSimpleName();
 	private final static int TILE_MINER_EXECUTOR_POOL_SIZE = getTileDownloaderExecutorPoolSize();
-	private final static int TILE_MINER_EXECUTOR_TASK_QUEUE_SIZE = 64; // хватит на все случаи жизни
 	
 	/**
 	 * Определяет количество рабочих потоков для скачивания тайлов, скачивание в несколько
@@ -32,7 +32,7 @@ public class TilesProcessorCenter extends Thread {
 	
 	private final SimpleMapView mapView;
 	private final Stack<TileRequest> tileRequestsStackQueue;
-	private final LinkedList<Future<?>> runningTileMiners;	// состояния запрошеных работ
+	private final LinkedList<TileRequest> delayedTileMiningJobs;
 	private final YandexTileMiner tileMiner;
 	private final TileMinerExecutorService tileMineExecutor;
 	
@@ -41,6 +41,7 @@ public class TilesProcessorCenter extends Thread {
 	private Bitmap requestedTileBitmap;
 	
 	private boolean paused = true;
+	private boolean delayedTileMiningJobChecked = true;
 	
 	/**
 	 * Создает центр обработки тайлов.
@@ -58,9 +59,9 @@ public class TilesProcessorCenter extends Thread {
 		this.tilesPersistentCache = tilesPersistentCache;
 		
 		this.tileRequestsStackQueue = new Stack<TileRequest>();
+		this.delayedTileMiningJobs = new LinkedList<TileRequest>();
 		this.tileMiner = new YandexTileMiner();
-		this.tileMineExecutor = new TileMinerExecutorService(TILE_MINER_EXECUTOR_POOL_SIZE, TILE_MINER_EXECUTOR_TASK_QUEUE_SIZE);
-		this.runningTileMiners = new LinkedList<Future<?>>();
+		this.tileMineExecutor = new TileMinerExecutorService(TILE_MINER_EXECUTOR_POOL_SIZE);
 		
 		this.requestedTileBitmap = Bitmap.createBitmap(TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_SIZE_WH_PX, TileSpecs.TILE_BITMAP_CONFIG);
 	}
@@ -80,9 +81,19 @@ public class TilesProcessorCenter extends Thread {
 		
 		while (!isInterrupted()) {
 		
-			// ждем пока нам не дадут новых заданий или не прервут нас
+			/*
+			 *	Сначала смотрим стоит ли нам работать 
+			 */
 			synchronized(this) {
-				if (tileRequestsStackQueue.isEmpty() || paused == true) {
+				
+				/*
+				 *	если мы на паузе - ждем
+				 *  если не на паузе, смотрим
+				 *  	если нет запросов на тайлы и нам не нужно проперить отложенные запросы - ждем
+				 *  в других случаях работаем 
+				 */
+				if ((tileRequestsStackQueue.isEmpty() && delayedTileMiningJobChecked == true) || paused == true) {
+					
 					try {
 						wait();
 					} catch (InterruptedException ex) {
@@ -93,13 +104,23 @@ public class TilesProcessorCenter extends Thread {
 			
 			if (isInterrupted()) break;
 				
-			TileRequest currentTileRequest = null;
+			TileRequest currentTileRequest = null;		// задание обрабатываемое на этой итерации
 			synchronized(this) {
-				if (tileRequestsStackQueue.isEmpty()) {
-					continue;
-				} else {
-					currentTileRequest = tileRequestsStackQueue.pop();
+				
+				if (tileRequestsStackQueue.isEmpty() == false) { 		// если есть запросы на тайлы 
+					currentTileRequest = tileRequestsStackQueue.pop();	// берем на обработку самый свежий	
+				} else {												// если запросов нет, то
+					if (delayedTileMiningJobChecked == false) {			// нужно проверить если ли отложенные работы
+						if (delayedTileMiningJobs.isEmpty() == false) {	// если есть отложенные запросы
+							currentTileRequest = 						// достаем отложенный запрос
+									delayedTileMiningJobs.remove();		// будет его обрабатывать
+						} else {										// если отложенных запросов тоже нет
+							delayedTileMiningJobChecked = true;			// ставим флаг, что все проверили
+						}
+					}					
 				}
+				
+				if (currentTileRequest == null) continue; // если задания нет, переходим к следующей итерации
 			}
 			
 			if (isInterrupted()) break;
@@ -109,21 +130,33 @@ public class TilesProcessorCenter extends Thread {
 				tileWasInCache = tilesPersistentCache.get(currentTileRequest, requestedTileBitmap);
 				if (tileWasInCache == true) {
 					mapView.addTileOnMapBitmap(currentTileRequest, requestedTileBitmap);
-					//Log.i(LOG_TAG, "FROM FLASH: " + currentTileRequest);
 				}
 			}
 			
 			if (isInterrupted()) break;
 			
 			if (tileWasInCache == false) { // нужно скачать тайл
-				addTileRequestToTileMinerExecutor(currentTileRequest);
+				
+				Runnable tileDownloadJob = buildRunnableForTileMinerExecutor(currentTileRequest);
+				
+				try {
+					tileMineExecutor.execute(tileDownloadJob);
+				} catch (RejectedExecutionException ex) { 
+					// задание не было принято... видимо все потоки заняты
+					// положим его в очеред к отложенным
+					synchronized(this) {	
+						delayedTileMiningJobs.add(currentTileRequest);
+						delayedTileMiningJobChecked = true;
+					}
+				}		
 			}			
 		}
 	}
 	
-	private void addTileRequestToTileMinerExecutor(TileRequest tileRequest) {
+	
+	private Runnable buildRunnableForTileMinerExecutor(TileRequest tileRequest) {
 		 
-		Runnable tileDownloadJob = new TileMinerExecutorService.TileMinerRunnable(tileRequest){
+		Runnable tileDownloadJob = new TileMinerExecutorService.TileMinerRunnable(tileRequest) {
 
 			@Override
 			public void run() {
@@ -139,17 +172,20 @@ public class TilesProcessorCenter extends Thread {
 						tileBitmap.recycle();
 					}				
 				}
+				TilesProcessorCenter.this.checkDelayedTileMiningJobs();
 			}			
 		};
 		
-		try {
-			runningTileMiners.add(tileMineExecutor.submit(tileDownloadJob));
-		} catch (RejectedExecutionException ex) { 
-			// задание не было принято... видимо по какой-то причине заполнилась
-			// очередь, попробуем ее очистить
-			tileMineExecutor.clearTaskQueue();			
-		}		
+		return tileDownloadJob;
 	}
+	
+	/**
+	 * Запускает процесс проверки очереди отложенный заданий на добычу тайтов.
+	 */
+	private synchronized void checkDelayedTileMiningJobs() {
+		delayedTileMiningJobChecked = false;
+		notify();
+	} 
 
 	/**
 	 * Добавляет в очередь запрос на опеределенный тайл.
@@ -170,10 +206,7 @@ public class TilesProcessorCenter extends Thread {
 	 */
 	public synchronized void clearRequestQueue() {
 		tileRequestsStackQueue.clear();
-		for (Future<?> runningTask :runningTileMiners) {
-			runningTask.cancel(false);	
-		}
-		runningTileMiners.clear();
+		delayedTileMiningJobs.clear();
 	}
 	
 	/**
@@ -185,7 +218,7 @@ public class TilesProcessorCenter extends Thread {
 	}
 	
 	/**
-	 * Ставит процессор тайлов на паузу. Новые задание не начинают обработку.
+	 * Ставит процессор тайлов на паузу. Новые задание не начинают обработку, старые доделываются.
 	 */
 	public synchronized void pauseProcessing() {
 		paused = true;
@@ -207,13 +240,24 @@ public class TilesProcessorCenter extends Thread {
 	 */
 	public synchronized void destroy() {
 		
+		// сначала останавливаем tileMineExecutor
+		if (tileMineExecutor.isShutdown() == false) {
+			tileMineExecutor.shutdownNow();
+		}
+		
+		// теперь останавливаем себя
+		interrupt();
+		try {
+			join(200);	// подождем немного пока все остановится
+			Log.i(LOG_TAG, "TileProcessor's thread dead now");
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+		
+		// очищаем ресурсы
 		if (requestedTileBitmap != null) {
 			requestedTileBitmap.recycle();
 			requestedTileBitmap = null;
-		}		
-		
-		if (tileMineExecutor.isShutdown() == false) {
-			tileMineExecutor.shutdownNow();
 		}
 	} 
 }

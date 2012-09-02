@@ -76,13 +76,24 @@ public class TilesPersistentMemoryCache {
 			protected boolean removeEldestEntry(Entry<TileRequest, File> eldest) {
 				
 				if (size() > TilesPersistentMemoryCache.this.size) {
-					remove(eldest.getKey());
-					eldest.getValue().delete();
+					removeCachedItem(eldest.getKey());
 					//Log.i(LOG_TAG, "Deleted file: " + eldest.getKey());
 				}
 				
 				return false;
-			}			
+			}
+
+			@Override
+			public File remove(Object key) {
+				// TODO Auto-generated method stub
+				return removeCachedItem(key);
+			}
+			
+			private File removeCachedItem(Object key) {
+				File tileFile = super.remove(key);
+				if (tileFile != null) tileFile.delete();
+				return null;
+			}
 		};
 		tilePixelsBuffer = ByteBuffer.allocate(TileSpecs.TILE_BITMAP_SIZE_BYTES);
 	}
@@ -120,20 +131,27 @@ public class TilesPersistentMemoryCache {
 	public synchronized boolean get(TileRequest tileRequest, Bitmap tileBitmap) {
 		FileInputStream fis = null;
 		try {
-			fis = new FileInputStream(cacheMap.get(tileRequest));
-			int bytesRead = fis.read(tilePixelsBuffer.array());
-			if (bytesRead == tilePixelsBuffer.array().length) {
-				tilePixelsBuffer.rewind();
-			}
-			tileBitmap.copyPixelsFromBuffer(tilePixelsBuffer);			
-			fis.close();
-			return true;
-		} catch(Exception ex) { // чтото пошло не так, ловим все исключения и говорим что в кеше ничего нет
-			cacheMap.remove(tileRequest);		
+			File tileFile = cacheMap.get(tileRequest);
+			if (tileFile != null) {
+				fis = new FileInputStream(tileFile);
+				int bytesRead = fis.read(tilePixelsBuffer.array());
+				fis.close();
+				
+				if (bytesRead == tilePixelsBuffer.array().length) {
+					tilePixelsBuffer.rewind();
+					tileBitmap.copyPixelsFromBuffer(tilePixelsBuffer);
+					return true;
+				}
+			}			
+		} catch(Exception ex) { 
+			// чтото пошло не так, ловим все исключения и говорим что в кеше ничего нет		
 		} finally {
 			if (fis != null) IOUtils.closeSilent(fis);
 		}
 		
+		// не смогли для заданного запроса выдать информацию
+		// удаляем информацию о нем
+		cacheMap.remove(tileRequest);
 		return false;
 	}
 	
@@ -177,7 +195,6 @@ public class TilesPersistentMemoryCache {
 				TileRequest tileRequest = getTileRequestFromTileFileName(tileFileName);
 				if (tileRequest != null) {
 					cacheMap.put(tileRequest, cachedFile);
-					Log.i(LOG_TAG, "Restored file: " + tileRequest);
 				}
 			}
 		}
