@@ -4,15 +4,18 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 
 import android.graphics.Bitmap;
+import android.os.StatFs;
 import android.util.Log;
 
 import com.pandacoder.tests.Utils.IOUtils;
 
 /**
- * Класс для кеширования тайлов в постоянной памяти
+ * Класс для кеширования тайлов в постоянной памяти. Кеш умеет автоматически масштабировать себя
+ * не занимая более 90% свободного места на диске, где он расположен.
  *
  */
 public class TilesPersistentMemoryCache {
@@ -32,31 +35,41 @@ public class TilesPersistentMemoryCache {
 		}
 	} 
 	
+	/**
+	 * После каждых RECHECK_AVAILABLE_SPACE_INTERVAL put операций в кеш, будет проверятся
+	 * доступное место в директории отведенное под кеш. Кеш старается занять не больше 90%
+	 * доступного на данный момент места.
+	 * 
+	 */
+	private final static int RECHECK_AVAILABLE_SPACE_INTERVAL = 20;
+	
 	private final File cacheDir;
 	private final LinkedHashMap<TileRequest, File> cacheMap ;
-	private final int size;
+	private final int maxAllowedCacheMapSize;
+	private int currentAllowedCacheMapSize;
 	private final ByteBuffer tilePixelsBuffer;
 	
 	/**
 	 * Создает кеш
 	 * 
 	 * @param cacheDirName директория, где будут храниться файлы
-	 * @param size размер кеша
+	 * @param sizeTiles размер кеша
 	 * 
 	 * @throws IllegalArgumentException, NullPointerException
 	 */
-	public TilesPersistentMemoryCache(String cacheDirName, int size) {
+	public TilesPersistentMemoryCache(String cacheDirName, int sizeTiles) {
 		
-		if (size < 0) {
+		if (sizeTiles < 0) {
 			throw new IllegalArgumentException("Tiles cache size shoulde be >= 0");
 		}
 		
 		if (cacheDirName == null) {
 			throw new NullPointerException("Tiels cacheDir is null. It's wrong.");
 		}
-		
+				
 		// Начинаем инициализировать кеш
 		cacheDir = new File(cacheDirName);
+		
 		if (cacheDir.exists() == false) { // если директории для кеша еще нет, нужно ее создать
 			if (!cacheDir.mkdirs()) {
 				throw new TilesPersistentMemoryCacheException("Fail to create cache dir");
@@ -67,17 +80,16 @@ public class TilesPersistentMemoryCache {
 			throw new TilesPersistentMemoryCacheException("Cant read/write cache dir. Cant work.");
 		}
 
-		this.size = size;		
-		this.cacheMap = new LinkedHashMap<TileRequest, File>(size) {
+		this.currentAllowedCacheMapSize = this.maxAllowedCacheMapSize = sizeTiles;
+		this.cacheMap = new LinkedHashMap<TileRequest, File>(sizeTiles) {
 
 			private static final long serialVersionUID = 232181184804078247L;
 
 			@Override
 			protected boolean removeEldestEntry(Entry<TileRequest, File> eldest) {
 				
-				if (size() > TilesPersistentMemoryCache.this.size) {
+				if (size() > TilesPersistentMemoryCache.this.currentAllowedCacheMapSize) {
 					removeCachedItem(eldest.getKey());
-					//Log.i(LOG_TAG, "Deleted file: " + eldest.getKey());
 				}
 				
 				return false;
@@ -85,7 +97,7 @@ public class TilesPersistentMemoryCache {
 
 			@Override
 			public File remove(Object key) {
-				// TODO Auto-generated method stub
+				Log.i(LOG_TAG, "removing item " + key.toString());
 				return removeCachedItem(key);
 			}
 			
@@ -96,6 +108,22 @@ public class TilesPersistentMemoryCache {
 			}
 		};
 		tilePixelsBuffer = ByteBuffer.allocate(TileSpecs.TILE_BITMAP_SIZE_BYTES);
+	}
+	
+	/**
+	 * Возращает количество тайлов, для которых достаточно места в директории кеша. Вычисляет 
+	 * общее свободное место в байтах, берет 90% от этого количества, чтобы совсем не забить 
+	 * весь раздел. Полученное число делит на размер одного тайла.
+	 * 
+	 * @return количество тайлов
+	 */
+	private int getAvailableFsSpaceInTiles() {
+		
+		StatFs stat = new StatFs(cacheDir.getPath());
+		long availableBytes = (long)stat.getAvailableBlocks() * stat.getBlockSize();
+		long availableTiles = availableBytes / TileSpecs.TILE_BITMAP_SIZE_BYTES * 9 / 10; 
+
+		return (int) availableTiles;
 	}
 	
 	private String getTileFileNameFromTileRequest(TileRequest tileRequest) {
@@ -129,6 +157,9 @@ public class TilesPersistentMemoryCache {
 	 * @return true - если в кеше был такой тайл, false - если в кеш не попали
 	 */
 	public synchronized boolean get(TileRequest tileRequest, Bitmap tileBitmap) {
+		
+		if (cacheMap.containsKey(tileRequest) == false) return false;
+		
 		FileInputStream fis = null;
 		try {
 			File tileFile = cacheMap.get(tileRequest);
@@ -155,12 +186,42 @@ public class TilesPersistentMemoryCache {
 		return false;
 	}
 	
+	private int checkAvailableSpaceCounter = 0;
+	private void scaleCacheMap() {
+		if (--checkAvailableSpaceCounter < 0 || currentAllowedCacheMapSize <= cacheMap.size()) {
+			long availablePlaceTiles = getAvailableFsSpaceInTiles();
+			currentAllowedCacheMapSize = (int) (cacheMap.size() + availablePlaceTiles);
+			
+			if (availablePlaceTiles > 0) {	// если еще есть место под тайлы 
+				if (currentAllowedCacheMapSize > maxAllowedCacheMapSize) {
+					currentAllowedCacheMapSize = maxAllowedCacheMapSize;
+				}
+				
+				checkAvailableSpaceCounter = RECHECK_AVAILABLE_SPACE_INTERVAL;
+			} else {
+				// нужно уменьшить кеш
+				// удалим из него одну запись
+				Iterator<TileRequest> it = cacheMap.keySet().iterator();
+				if (it.hasNext()) {
+					cacheMap.remove(it.next());
+				}
+				// уменьшим разрешенный размер
+				--currentAllowedCacheMapSize;
+				if (currentAllowedCacheMapSize < 0) currentAllowedCacheMapSize = 0;
+				checkAvailableSpaceCounter = 0;
+			}
+			
+		}
+	}
 	/**
-	 * Кладет в кеш изображение тайла. Содержимое битмапа записывается в файл.
+	 * Кладет в кеш изображение тайла. Содержимое битмапа записывается в файл. Если положить в кеш не удалось - молчит.
 	 * @param tileRequest
 	 * @param tileBitmap
 	 */
 	public synchronized void put(TileRequest tileRequest, Bitmap tileBitmap) {
+	
+		scaleCacheMap();
+		if (checkAvailableSpaceCounter <= 0) return;
 		
 		FileOutputStream fos = null;
 		try {			

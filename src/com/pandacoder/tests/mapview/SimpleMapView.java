@@ -50,7 +50,7 @@ public class SimpleMapView extends ViewGroup {
 	private TouchEventHandler touchEventHandler;
 	
 	private final static int TILES_RAM_CACHE_SIZE = 16;	// tiles 16*256*256*2 ~ 2.1Mb ram
-	private final static int TILES_PERSISTENT_MEMORY_CACHE_SIZE = 55; // tiles 55*256*256*2 ~7.2Mb flash 
+	private final static int TILES_PERSISTENT_MEMORY_CACHE_SIZE = 100*100; // tiles 100*100*256*256*2 ~1250Mb O_o 
 	
 	private TilesRamCache tilesRamCache; 
 	private TilesPersistentMemoryCache tilesMemoryCache;
